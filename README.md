@@ -19,3 +19,6 @@ pip install -r requirements.txt
 cd Belajar_Analisis_Data_dengan_Python/dashboard
 streamlit run dashboard.py
 ```
+
+## Demo Project
+https://ecommers-usamah-putra-firdaus.streamlit.app/
