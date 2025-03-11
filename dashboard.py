@@ -14,51 +14,42 @@ datetime_columns = ["order_approved_at"]
 for column in datetime_columns:
     all_df[column] = pd.to_datetime(all_df[column])
 
-def number_order_per_month(all_df, start_date, end_date):
-    # Konversi start_date dan end_date ke pd.Timestamp
-    start_date = pd.to_datetime(start_date)
-    end_date = pd.to_datetime(end_date)
 
-    # Pastikan kolom order_approved_at dalam format datetime
-    all_df["order_approved_at"] = pd.to_datetime(all_df["order_approved_at"], errors="coerce")
+def number_orders_per_month(all_df):
+    monthly_df = all_df.resample(rule='M', on='order_approved_at').agg({
+    "order_id": "size",
+    })
 
-    # Jika rentang waktu yang dipilih tidak mencakup tahun 2017 sama sekali, kembalikan DataFrame dengan nilai 0 untuk semua bulan
-    if (start_date.year > 2017) or (end_date.year < 2017):
-        monthly_df = pd.DataFrame({
-            "Month": ["January", "February", "March", "April", "May", "June", 
-                      "July", "August", "September", "October", "November", "December"],
-            "order_count": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        })
-        return monthly_df
+    monthly_df.index = monthly_df.index.strftime('%B')
+    monthly_df = monthly_df.reset_index()
+    monthly_df.rename(columns={
+        "order_id": "order_count",
+    }, inplace=True)
 
-    # Filter data untuk tahun 2017
-    filtered_df = all_df[(all_df["order_approved_at"] >= pd.to_datetime("2017-01-01")) & 
-                         (all_df["order_approved_at"] <= pd.to_datetime("2017-12-31"))]
+    monthly_df = monthly_df.groupby('order_approved_at', as_index=False).agg({
+        'order_count': 'sum'
+    })
 
-    # Filter data berdasarkan rentang waktu yang dipilih
-    filtered_df = filtered_df[(filtered_df["order_approved_at"] >= start_date) & 
-                              (filtered_df["order_approved_at"] <= end_date)]
-
-    # Resample per bulan untuk menghitung jumlah pesanan
-    monthly_df = filtered_df.resample(rule='M', on='order_approved_at').agg({
-        "order_id": "count"  # Menghitung jumlah pesanan
-    }).reset_index()
-
-    # Ubah format tanggal menjadi hanya bulan untuk ditampilkan
-    monthly_df["Month"] = monthly_df["order_approved_at"].dt.strftime('%B')
-    monthly_df.rename(columns={"order_id": "order_count"}, inplace=True)
-
-    # Mapping bulan ke angka agar bisa diurutkan dengan benar
     month_mapping = {
-        "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
-        "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12
+        "January": 1,
+        "February": 2,
+        "March": 3,
+        "April": 4,
+        "May": 5,
+        "June": 6,
+        "July": 7,
+        "August": 8,
+        "September": 9,
+        "October": 10,
+        "November": 11,
+        "December": 12
     }
-    monthly_df["month_number"] = monthly_df["Month"].map(month_mapping)
 
-    # Urutkan berdasarkan bulan
-    monthly_df = monthly_df.sort_values("month_number").drop(columns=["month_number", "order_approved_at"])
-
+    monthly_df["month_conversion"] = monthly_df["order_approved_at"].map(month_mapping)
+    monthly_df = monthly_df.sort_values("month_conversion")
+    monthly_df = monthly_df.drop("month_conversion", axis=1)
     return monthly_df
+
 
 def create_by_product_df(all_df):
     counts_product_name = all_df.groupby(by='product_category_name_english').product_id.count().sort_values(ascending=False).reset_index()
@@ -86,7 +77,6 @@ def create_rfm(all_df):
 
     return rfm_data
 
-
 # ==================================================================================================
 # ============================================ Side Bar ============================================
 # ==================================================================================================
@@ -103,8 +93,15 @@ with st.sidebar:
         max_value=max_date,
         value=[min_date, max_date]
     )
+
+    if st.button("Clear Filter"):
+        start_date, end_date = min_date, max_date
+
     st.write('Copyright (C) © 2025 by Usamah')
 
+# Filter data berdasarkan rentang tanggal yang dipilih
+filtered_df = all_df[(all_df['order_approved_at'] >= pd.to_datetime(start_date)) & 
+                     (all_df['order_approved_at'] <= pd.to_datetime(end_date))]
 
 # ==================================================================================================
 # ============================================= Header =============================================
@@ -115,60 +112,69 @@ st.header('E-Commerce Public Dataset')
 # ==================================================================================================
 # ========================================== Trend Orders ==========================================
 # ==================================================================================================
-daily_orders_df = number_order_per_month(all_df, start_date, end_date)
+daily_orders_df = number_orders_per_month(filtered_df)  # Gunakan filtered_df
 
-st.subheader('Monthly Orders (2017)')
-st.subheader('Filter Only Works in the 2017 Year Range')
+st.subheader('Total Orders per Month')
+col1, col2 = st.columns(2)
+
+with col1:
+    high_order_num = daily_orders_df['order_count'].max()
+    high_order_month=daily_orders_df[daily_orders_df['order_count'] == daily_orders_df['order_count'].max()]['order_approved_at'].values[0]
+    st.markdown(f"Highest orders in {high_order_month} : **{high_order_num}**")
+
+with col2:
+    low_order = daily_orders_df['order_count'].min()
+    low_order_month=daily_orders_df[daily_orders_df['order_count'] == daily_orders_df['order_count'].min()]['order_approved_at'].values[0]
+    st.markdown(f"Lowest orders in {low_order_month} : **{low_order}**")
 
 # Plot data
 fig, ax = plt.subplots(figsize=(15, 6))
 
 ax.plot(
-    daily_orders_df["Month"],
+    daily_orders_df["order_approved_at"],
     daily_orders_df["order_count"],
     marker='o', 
     linewidth=2,
     color="#72BCD4"
 )
+ax.set_title("Total Orders per Month", loc="center", fontsize=20)
+ax.tick_params(axis='x', labelsize=10)  # Mengatur ukuran label sumbu X
+ax.tick_params(axis='y', labelsize=10)  # Mengatur ukuran label sumbu Y
 
-ax.set_title("Number of Orders per Month (2017)", loc="center", fontsize=20)
-ax.set_xlabel("Month", fontsize=12)
-ax.set_ylabel("Order Count", fontsize=12)
-ax.tick_params(axis='x', labelsize=10, rotation=45)  # Rotasi agar lebih mudah dibaca
-ax.tick_params(axis='y', labelsize=10)
 
-# Tambahkan nilai di atas titik-titik pada grafik
 for i, txt in enumerate(daily_orders_df["order_count"]):
     ax.text(
-        i, txt, f'{txt}', ha='center', va='bottom',
-        fontsize=10, fontweight='bold'
+        daily_orders_df["order_approved_at"].iloc[i],
+        txt,
+        f'{txt}',
+        ha='center',
+        va='bottom',
+        fontsize=10,
+        fontweight='bold'
     )
 
-# Tampilkan plot di Streamlit
 st.pyplot(fig)
 
 # ==================================================================================================
 # ====================================== Best & Worst Product ======================================
 # ==================================================================================================
-best_worst_products_df=create_by_product_df(all_df)
-
-
+best_worst_products_df = create_by_product_df(filtered_df)
 st.subheader("Best & Worst Product")
 col1, col2 = st.columns(2)
 
 with col1:
-    highest_product_sold=best_worst_products_df['product_id'].max()
+    highest_product_sold = best_worst_products_df['product_id'].max()
     st.markdown(f"Higest Number : **{highest_product_sold}**")
 
 with col2:
-    lowest_product_sold=best_worst_products_df['product_id'].min()
+    lowest_product_sold = best_worst_products_df['product_id'].min()
     st.markdown(f"Lowest Number : **{lowest_product_sold}**")
 
 fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
 
 colors = ["#72BCD4", "#D3D3D3", "#D3D3D3", "#D3D3D3", "#D3D3D3"]
 
-sns.barplot(x='product_id', y='product_category_name_english', data= best_worst_products_df.head(5), palette=colors, ax=ax[0])
+sns.barplot(x='product_id', y='product_category_name_english', data=best_worst_products_df.head(5), palette=colors, ax=ax[0])
 ax[0].set_ylabel(None)
 ax[0].set_xlabel(None)
 ax[0].set_title('Produk Terlaris', loc='center', fontsize= 18)
@@ -196,7 +202,7 @@ st.pyplot(fig)
 # ==================================================================================================
 # ========================================== RFM Analysis ==========================================
 # ==================================================================================================
-rfm=create_rfm(all_df)
+rfm = create_rfm(all_df)
 
 st.subheader("RFM Analysis")
 
@@ -254,4 +260,3 @@ with tab3:
                     ha='center', va='bottom', fontsize=12, color='black')
 
     st.pyplot(fig)
-    
